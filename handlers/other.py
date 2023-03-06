@@ -1,8 +1,9 @@
+import math
+
 from aiogram import types, Dispatcher
 from aiogram.dispatcher import FSMContext
 from aiogram.dispatcher.filters.state import StatesGroup, State
 from . import admin
-from Course import Course
 from DB import DB
 
 
@@ -89,9 +90,9 @@ async def calc_3(call: types.CallbackQuery, state: FSMContext):
 async def calc_4(message: types.Message, state: FSMContext):
     input_integer = message.text
     if input_integer.isdigit():
-        api = Course()
-        course = api.get()
-        if course != '':
+        course_data = DB.query("""SELECT * FROM currency WHERE name = %s""", ('CNY',))
+        if len(course_data) != 0:
+            course = course_data[0][2]
             async with state.proxy() as data:
                 charge_type = data['charge_type']
                 charge = data['charge']
@@ -111,24 +112,28 @@ async def calc_4(message: types.Message, state: FSMContext):
                     charge_pieces = admin.formula_decode(charge)
                     # сортируем по возрастанию
                     charge_pieces = dict(sorted(charge_pieces.items()))
-                    print(str(charge_pieces))
                     # перебираем, смотрим словия на установку наценки
                     # (итоговая цена больше или равна минимальному порогу для установленной наценки)
                     for charge_data in charge_pieces:
-                        print('1 ' + charge_data)
-                        print('1 ' + charge_pieces[charge_data])
-                        if int(no_charge_price) >= int(charge_data):
+                        if int(input_integer) >= int(charge_data):
                             result_charge = charge_pieces[charge_data]
-                    calc_result = no_charge_price + float(result_charge)
+                    calc_result = (float(input_integer) * float(course)) + float(result_charge)
             await state.finish()
-            await message.answer(
-                'Подкатегория = "' + subcat_name + '"\n' +
-                'Тип наценки (' + str(charge_type) + ')\n' +
-                'Наценка (' + str(charge) + ')\n' +
-                'Стоимость без наценки (' + str(round(no_charge_price, 2)) + 'р.)\n' +
-                'Курс = ' + str(course) + '\n' +
-                'Итоговая стоимость = ' + str(round(calc_result, 2)) + 'р.'
-            )
+            if admin.check_admin(message.from_user.id):
+                await message.answer(
+                    'Подкатегория = "' + subcat_name + '"\n' +
+                    'Тип наценки (' + str(charge_type) + ')\n\n' +
+                    'Наценка (' + str(charge) + ')\n' +
+                    'Стоимость без наценки (' + str(round(no_charge_price)) + 'р.)\n' +
+                    'Курс = ' + course + '\n\n' +
+                    'Итоговая стоимость = ' + str(round(calc_result)) + 'р.\n' +
+                    'Округленная = ' + str(math.ceil(calc_result / 500) * 500) + 'р.'
+                )
+            else:
+                await message.answer(
+                    'Подкатегория = "' + subcat_name + '"\n' +
+                    'Итоговая стоимость = ' + str(math.ceil(calc_result / 500) * 500) + 'р.'
+                )
         else:
             await message.answer('Не удалось получить курс, попробуйте еще раз')
     else:

@@ -1,15 +1,15 @@
 from aiogram import types, Dispatcher
 from aiogram.dispatcher import FSMContext
 
-from Course import Course
+from DB import DB
 
 
 # @dp.message_handler(state=FSMAdmin.course_command)
 async def show_course(message: types.Message, state: FSMContext):
-    api = Course()
-    course = api.get()
+    course_data = DB.query("""SELECT * FROM currency WHERE name = %s""", ('CNY',))
+    course = course_data[0][2]
     await state.finish()
-    await message.answer('Текущий курс = ' + str(course))
+    await message.answer('Текущий курс = ' + course)
 
 
 def register_user_handlers(dp: Dispatcher):
