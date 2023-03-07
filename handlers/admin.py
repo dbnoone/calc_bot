@@ -36,6 +36,8 @@ class FSMCategory(StatesGroup):
 
     admin_list_1 = State()
 
+    currency_set_2 = State()
+
 
 async def cat_list(message: types.Message):
     message_text = ''
@@ -177,8 +179,8 @@ async def charge_3(call: types.CallbackQuery, state: FSMContext):
                                (subcat_id, cat_id))
         if len(subcategory) != 0:
             buttons = [
-                types.InlineKeyboardButton(text='"Фиксированная"', callback_data='1'),
-                types.InlineKeyboardButton(text='"Динамическая"', callback_data='2')
+                types.InlineKeyboardButton(text='Фиксированная', callback_data='1'),
+                types.InlineKeyboardButton(text='Динамическая', callback_data='2')
             ]
             keyboard = types.InlineKeyboardMarkup(row_width=1)
             keyboard.add(*buttons)
@@ -200,26 +202,22 @@ async def charge_4(call: types.CallbackQuery, state: FSMContext):
             subcat_id = data['subcat_id']
         subcategory = DB.query("""SELECT * FROM subcategories WHERE id = %s""", (subcat_id,))
         if len(subcategory) != 0:
-            message = ''
-            match subcategory[0][3]:
-                case 1:
-                    message += 'Текущая наценка\nТип - фиксированная\nЗначение - ' + subcategory[0][4] + '\n'
-                case 2:
-                    message += 'Текущая наценка\nТип - динамическая\nЗначение - ' + subcategory[0][4] + '\n'
             match charge_type:
                 case '1':
                     await call.message.delete()
                     await FSMCategory.charge_5.set()
-                    await call.message.answer(message + 'Укажите фиксированную наценку в валюте')
+                    await call.message.answer('Укажите фиксированную наценку в валюте')
                     async with state.proxy() as data:
                         data['charge_type'] = charge_type
                 case '2':
                     await call.message.delete()
                     await FSMCategory.charge_5.set()
                     await call.message.answer(
-                        message +
-                        'Укажите формулу для расчета в формате (минимальный порог цены в валюте = наценка, '
-                        'минимальный порог цены в валюте = наценка...)'
+                        'Укажите формулу для расчета в формате (минимальный порог цены в валюте = наценка,...)'
+                        '\nНапример: 100=543,600=2173 ('
+                        'при цене от 100 до 600 наценка = 543, '
+                        'от 600 = 2173, '
+                        'при цене до 100 наценка = 0)'
                     )
                     async with state.proxy() as data:
                         data['charge_type'] = charge_type
@@ -410,12 +408,13 @@ async def admin_menu(message: types.Message):
             "Список",
             "Удалить",
             "Добавить",
+            "Курс",
             "Главное меню"
         ]
         keyboard.add(*buttons)
         await FSMCategory.admin_menu.set()
         await message.answer('Админка', reply_markup=keyboard)
-
+        
 
 async def admin_list_1(message: types.Message):
     if check_admin(message.from_user.id):
@@ -439,7 +438,7 @@ async def admin_delete_1(message: types.Message):
         if len(admins_list) != 0:
             for admin_data in admins_list:
                 buttons.append(types.InlineKeyboardButton(
-                    text='"' + admin_data[1] + '"', callback_data=admin_data[0])
+                    text='"' + admin_data[2] + '"', callback_data=admin_data[0])
                 )
             keyboard = types.InlineKeyboardMarkup(row_width=1)
             keyboard.add(*buttons)
@@ -504,6 +503,31 @@ def check_admin(tg_user_id):
     return result
 
 
+async def currency_set_1(message: types.Message, state: FSMContext):
+    if check_admin(message.from_user.id):
+        currency_data = DB.query("""SELECT * FROM currency WHERE name = %s""", ('CNY',))
+        await FSMCategory.currency_set_2.set()
+        await message.answer(
+            'Текущий курс = ' + str(currency_data[0][2]) +
+            '\nВведите новый курс\nДля нецелого числа разделитель точка (пример - 23.16)'
+        )
+
+
+async def currency_set_2(message: types.Message, state: FSMContext):
+    if check_admin(message.from_user.id):
+        new_value = message.text
+        if float(new_value) and float(new_value) != 0.0:
+            if float(new_value) < 0.0:
+                new_value = float(new_value) + (float(new_value) * -2)
+            else:
+                new_value = float(new_value)
+            DB.query("""UPDATE currency SET value = %s WHERE name = %s""", (str(new_value), 'CNY'))
+            await FSMCategory.admin_menu.set()
+            await message.answer('Курс обновлен')
+        else:
+            await message.answer('Значение некорректно')
+
+
 def register_admin_handlers(dp: Dispatcher):
     dp.register_message_handler(
         cat_list,
@@ -537,6 +561,9 @@ def register_admin_handlers(dp: Dispatcher):
     dp.register_message_handler(admin_add_1, lambda message: message.text == "Добавить", state=FSMCategory.admin_menu)
     dp.register_message_handler(admin_add_2, state=FSMCategory.admin_add_2)
     dp.register_message_handler(admin_add_3, state=FSMCategory.admin_add_3)
+
+    dp.register_message_handler(currency_set_1, lambda message: message.text == "Курс", state=FSMCategory.admin_menu)
+    dp.register_message_handler(currency_set_2, state=FSMCategory.currency_set_2)
 
 
 def cat_buttons_list(join_subcategories=False):
