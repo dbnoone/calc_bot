@@ -14,24 +14,43 @@ class FSMCalc(StatesGroup):
 
 
 # @dp.message_handler(commands=['start'])
-async def start(message: types.Message, state: FSMContext):
-    keyboard = types.ReplyKeyboardMarkup(resize_keyboard=True)
-    if admin.check_admin(message.from_user.id):
-        buttons = [
-            "Показать курс",
-            "Рассчитать",
-            "Управление категориями",
-            "Админка"
-        ]
-    else:
-        buttons = [
-            "Показать курс",
-            "Рассчитать",
-            "Список"
-        ]
-    keyboard.add(*buttons)
-    await state.finish()
-    await message.answer("Выберите нужное действие", reply_markup=keyboard)
+async def start(message, state: FSMContext, text='Выберите нужное действие'):
+    if isinstance(message, types.Message):
+        keyboard = types.ReplyKeyboardMarkup(resize_keyboard=True)
+        if admin.check_admin(message.from_user.id):
+            buttons = [
+                "Показать курс",
+                "Рассчитать",
+                "Управление категориями",
+                "Админка"
+            ]
+        else:
+            buttons = [
+                "Показать курс",
+                "Рассчитать",
+                "Список"
+            ]
+        keyboard.add(*buttons)
+        await state.finish()
+        await message.answer(text, reply_markup=keyboard)
+    elif isinstance(message, types.CallbackQuery):
+        keyboard = types.ReplyKeyboardMarkup(resize_keyboard=True)
+        if admin.check_admin(message.from_user.id):
+            buttons = [
+                "Показать курс",
+                "Рассчитать",
+                "Управление категориями",
+                "Админка"
+            ]
+        else:
+            buttons = [
+                "Показать курс",
+                "Рассчитать",
+                "Список"
+            ]
+        keyboard.add(*buttons)
+        await state.finish()
+        await message.message.answer(text, reply_markup=keyboard)
 
 
 # @dp.message_handler(commands=['help'])
@@ -39,7 +58,7 @@ async def show_help(message: types.Message):
     await message.reply("Привет!\nНапиши мне что-нибудь!")
 
 
-async def calc_1(message: types.Message):
+async def calc_1(message: types.Message, state: FSMContext):
     buttons = admin.cat_buttons_list(True)
     if len(buttons) != 0:
         keyboard = types.InlineKeyboardMarkup(row_width=1)
@@ -47,7 +66,7 @@ async def calc_1(message: types.Message):
         await FSMCalc.calc_2.set()
         await message.answer('Выберите категорию', reply_markup=keyboard)
     else:
-        await message.answer('Категории не найдены, сначала создайте их')
+        await admin.menu(message, state, 'Категорий с подкатегориями нет')
 
 
 async def calc_2(call: types.CallbackQuery, state: FSMContext):
@@ -63,7 +82,7 @@ async def calc_2(call: types.CallbackQuery, state: FSMContext):
         await FSMCalc.calc_3.set()
         await call.message.answer('Выберите подкатегорию', reply_markup=keyboard)
     else:
-        await call.message.answer('Подкатегории не найдены')
+        await admin.menu(call, state, 'Подкатегории не найдены')
 
 
 async def calc_3(call: types.CallbackQuery, state: FSMContext):
@@ -84,7 +103,7 @@ async def calc_3(call: types.CallbackQuery, state: FSMContext):
         await FSMCalc.calc_4.set()
         await call.message.answer('Введите сумму в юанях (только целые числа)')
     else:
-        await call.message.answer('Подкатегория не найдена')
+        await admin.menu(call, state, 'Подкатегория не найдена')
 
 
 async def calc_4(message: types.Message, state: FSMContext):
@@ -118,22 +137,23 @@ async def calc_4(message: types.Message, state: FSMContext):
                         if int(input_integer) >= int(charge_data):
                             result_charge = charge_pieces[charge_data]
                     calc_result = (float(input_integer) * float(course)) + float(result_charge)
-            await state.finish()
             if admin.check_admin(message.from_user.id):
-                await message.answer(
+                await start(
+                    message,
+                    state,
                     'Подкатегория = "' + subcat_name + '"\n' +
                     'Тип наценки (' + str(charge_type) + ')\n\n' +
                     'Наценка (' + str(charge) + ')\n' +
                     'Стоимость без наценки (' + str(round(no_charge_price)) + 'р.)\n' +
                     'Курс = ' + course + '\n\n' +
                     'Итоговая стоимость = ' + str(round(calc_result)) + 'р.\n' +
-                    'Округленная = ' + str(math.ceil(calc_result / 500) * 500) + 'р.'
-                )
+                    'Округленная = ' + str(math.ceil(calc_result / 500) * 500) + 'р.')
             else:
-                await message.answer(
+                await start(
+                    message,
+                    state,
                     'Подкатегория = "' + subcat_name + '"\n' +
-                    'Итоговая стоимость = ' + str(math.ceil(calc_result / 500) * 500) + 'р.'
-                )
+                    'Итоговая стоимость = ' + str(math.ceil(calc_result / 500) * 500) + 'р.')
         else:
             await message.answer('Не удалось получить курс, попробуйте еще раз')
     else:
@@ -141,41 +161,10 @@ async def calc_4(message: types.Message, state: FSMContext):
 
 
 def register_other_handlers(dp: Dispatcher):
-    dp.register_message_handler(
-        start,
-        lambda message: message.text == "Главное меню",
-        state=[
-            calc_2,
-            calc_3,
-            calc_4,
-            admin.FSMCategory.cat_menu,
-            admin.FSMCategory.charge_1,
-            admin.FSMCategory.charge_2,
-            admin.FSMCategory.charge_3,
-            admin.FSMCategory.charge_4,
-            admin.FSMCategory.charge_5,
-            admin.FSMCategory.delete_menu_1,
-            admin.FSMCategory.delete_menu_2,
-            admin.FSMCategory.cat_delete_2,
-            admin.FSMCategory.subcat_delete_2,
-            admin.FSMCategory.subcat_delete_3,
-            admin.FSMCategory.create_menu_1,
-            admin.FSMCategory.create_menu_2,
-            admin.FSMCategory.category_add_2,
-            admin.FSMCategory.subcategory_add_2,
-            admin.FSMCategory.subcategory_add_3,
-            admin.FSMCategory.admin_menu,
-            admin.FSMCategory.admin_add_1,
-            admin.FSMCategory.admin_add_2,
-            admin.FSMCategory.admin_add_3,
-            admin.FSMCategory.admin_delete_1,
-            admin.FSMCategory.admin_delete_2,
-            admin.FSMCategory.admin_list_1,
-        ]
-    )
-    dp.register_message_handler(start, commands=["start"])
-    dp.register_message_handler(help, commands=["help"])
-    dp.register_message_handler(calc_1, lambda message: message.text == "Рассчитать")
+    dp.register_message_handler(start, lambda message: message.text == "Главное меню", state="*")
+    dp.register_message_handler(start, commands=["start"], state="*")
+    dp.register_message_handler(help, commands=["help"], state="*")
+    dp.register_message_handler(calc_1, lambda message: message.text == "Рассчитать", state="*")
     dp.register_callback_query_handler(calc_2, state=FSMCalc.calc_2)
     dp.register_callback_query_handler(calc_3, state=FSMCalc.calc_3)
     dp.register_message_handler(calc_4, state=FSMCalc.calc_4)

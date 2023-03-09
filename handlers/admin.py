@@ -2,6 +2,7 @@ from aiogram import types, Dispatcher
 from aiogram.dispatcher import FSMContext
 from aiogram.dispatcher.filters.state import State, StatesGroup
 from DB import DB
+from . import other
 
 
 class FSMCategory(StatesGroup):
@@ -21,9 +22,9 @@ class FSMCategory(StatesGroup):
 
     create_menu_1 = State()
     create_menu_2 = State()
-    category_add_2 = State()
-    subcategory_add_2 = State()
-    subcategory_add_3 = State()
+    cat_add_2 = State()
+    subcat_add_2 = State()
+    subcat_add_3 = State()
 
     admin_menu = State()
 
@@ -39,7 +40,7 @@ class FSMCategory(StatesGroup):
     currency_set_2 = State()
 
 
-async def cat_list(message: types.Message):
+async def cat_list(message: types.Message, state: FSMContext):
     message_text = ''
     categories_list = DB.query("""SELECT * FROM categories""")
     if len(categories_list) != 0:
@@ -50,82 +51,13 @@ async def cat_list(message: types.Message):
                 for subcategory in subcategories_list:
                     message_text += '\t\t\t - "' + subcategory[1] + '"\n'
             else:
-                message_text += '\t\t\t - Подкатегорий нет\n'
-        await FSMCategory.cat_menu.set()
-        await message.answer(message_text)
+                message_text += '\t\t\t - Подкатегории не найдены\n'
+        await menu(message, state, message_text)
     else:
-        await message.answer('Категорий нет')
+        await menu(message, state, 'Категории не найдены')
 
 
-# @dp.message_handler(state=FSMAdmin.course_command)
-async def category_add_2(message: types.Message):
-    if check_admin(message.from_user.id):
-        name = message.text.strip()
-        select_result = DB.query(
-            """SELECT * FROM categories WHERE name = %s""",
-            (name,)
-        )
-        if len(select_result) == 0:
-            DB.query(
-                """INSERT INTO categories (id, name) VALUES (%s, %s)""",
-                (None, name,)
-            )
-            await FSMCategory.cat_menu.set()
-            await message.answer('Категория "' + name + '" создана')
-        else:
-            await message.answer('Категория с таким именем уже есть')
-
-
-async def subcategory_add_2(call: types.CallbackQuery, state: FSMContext):
-    await call.answer()
-    if check_admin(call.from_user.id):
-        category_id = call.data
-        select_category = DB.query("""SELECT * FROM categories WHERE id = %s""", (category_id,))
-        if len(select_category) != 0:
-            message_text = 'Введите название подкатегории\n'
-            subcategories_list = DB.query("""SELECT * FROM subcategories WHERE parent_cat_id = %s""", (category_id,))
-            if len(subcategories_list) != 0:
-                message_text += 'Текущий список подкатегорий в этой категории:\n'
-                for subcategory in subcategories_list:
-                    message_text += '"' + subcategory[1] + '"\n'
-            async with state.proxy() as data:
-                data['cat_name'] = select_category[0][1]
-                data['cat_id'] = category_id
-            await call.message.delete()
-            await FSMCategory.subcategory_add_3.set()
-            await call.message.answer(message_text)
-        else:
-            await call.message.answer('Такой категории нет')
-    else:
-        await call.message.delete()
-        await FSMCategory.cat_menu.set()
-
-
-async def subcategory_add_3(message: types.Message, state: FSMContext):
-    if check_admin(message.from_user.id):
-        async with state.proxy() as data:
-            category_id = data['cat_id']
-            category_name = data['cat_name']
-        subcategory_name = message.text.strip()
-        subcategory = DB.query(
-            """SELECT * FROM subcategories WHERE name =%s AND parent_cat_id = %s""",
-            (subcategory_name, category_id,)
-        )
-        if len(subcategory) == 0:
-            DB.query(
-                """INSERT INTO subcategories (id, name, parent_cat_id, charge_type, charge )""" +
-                """ VALUES (%s,%s, %s, %s, %s)""",
-                (None, subcategory_name, category_id, 1, '0')
-            )
-            await FSMCategory.cat_menu.set()
-            await message.answer(
-                'Подкатегория "' + subcategory_name + '" в категории "' + category_name + '" создана'
-            )
-        else:
-            await message.answer('Подкатегория с таким именем уже есть')
-
-
-async def charge_1(message: types.Message):
+async def charge_1(message: types.Message, state: FSMContext):
     if check_admin(message.from_user.id):
         buttons = cat_buttons_list(True)
         if len(buttons) != 0:
@@ -134,7 +66,9 @@ async def charge_1(message: types.Message):
             await FSMCategory.charge_2.set()
             await message.answer('Выберите категорию', reply_markup=keyboard)
         else:
-            await message.answer('Категории не найдены, либо категории без подкатегорий')
+            await menu(message, state, 'Категории с подкатегориями не найдены')
+    else:
+        await menu(message, state, 'Нет доступа')
 
 
 async def charge_2(call: types.CallbackQuery, state: FSMContext):
@@ -160,12 +94,13 @@ async def charge_2(call: types.CallbackQuery, state: FSMContext):
                     reply_markup=keyboard
                 )
             else:
-                await FSMCategory.cat_menu.set()
-                await call.message.answer('В этой категории не подкатегорий')
+                await call.message.delete()
+                await menu(call, state, 'В этой категории не подкатегорий')
         else:
             await call.message.answer('Категория не найдена')
     else:
         await call.message.delete()
+        await menu(call, state, 'Нет доступа')
 
 
 async def charge_3(call: types.CallbackQuery, state: FSMContext):
@@ -192,6 +127,7 @@ async def charge_3(call: types.CallbackQuery, state: FSMContext):
             await call.message.answer('Подкатегория не найдена')
     else:
         await call.message.delete()
+        await menu(call, state, 'Нет доступа')
 
 
 async def charge_4(call: types.CallbackQuery, state: FSMContext):
@@ -225,6 +161,7 @@ async def charge_4(call: types.CallbackQuery, state: FSMContext):
             await call.message.answer('Подкатегория не найдена')
     else:
         await call.message.delete()
+        await menu(call, state, 'Нет доступа')
 
 
 async def charge_5(message: types.Message, state: FSMContext):
@@ -242,8 +179,7 @@ async def charge_5(message: types.Message, state: FSMContext):
                         """WHERE id = %s AND parent_cat_id = %s""",
                         (charge_type, charge, subcat_id, cat_id)
                     )
-                    await FSMCategory.cat_menu.set()
-                    await message.answer('Наценка установлена')
+                    await menu(message, state, 'Наценка установлена')
                 else:
                     await message.answer('Фиксированная наценка должна быть целым числом')
             case '2':
@@ -254,10 +190,11 @@ async def charge_5(message: types.Message, state: FSMContext):
                         """WHERE id = %s AND parent_cat_id = %s""",
                         (charge_type, charge, subcat_id, cat_id)
                     )
-                    await FSMCategory.cat_menu.set()
-                    await message.answer('Наценка установлена')
+                    await menu(message, state, 'Наценка установлена')
                 else:
                     await message.answer('Формула не корректна')
+    else:
+        await menu(message, state, 'Нет доступа')
 
 
 async def delete_menu_1(message: types.Message):
@@ -303,18 +240,18 @@ async def delete_menu_2(call: types.CallbackQuery):
 async def cat_delete_2(call: types.CallbackQuery):
     await call.answer()
     if check_admin(call.from_user.id):
-        cat_name = call.data
-        select_result = DB.query(
-            """SELECT * FROM categories WHERE name = %s""", (cat_name,)
+        cat_id = call.data
+        categories = DB.query(
+            """SELECT * FROM categories WHERE id = %s""", (cat_id,)
         )
-        if len(select_result) != 0:
+        if len(categories) != 0:
             DB.query(
-                """DELETE FROM categories WHERE name = %s""", (cat_name,)
+                """DELETE FROM categories WHERE id = %s""", (cat_id,)
             )
-            DB.query("""DELETE FROM subcategories WHERE parent_cat_id = %s""", (cat_name,))
+            DB.query("""DELETE FROM subcategories WHERE parent_cat_id = %s""", (cat_id,))
             await FSMCategory.cat_menu.set()
             await call.message.delete()
-            await call.message.answer('Категория "' + cat_name + '" удалена вместе с ее подкатегориями')
+            await call.message.answer('Категория "' + categories[0][1] + '" удалена вместе с ее подкатегориями')
         else:
             await call.message.answer('Категория не найдена')
     else:
@@ -341,18 +278,18 @@ async def subcat_delete_2(call: types.CallbackQuery):
         await call.message.delete()
 
 
-async def subcat_delete_3(call: types.CallbackQuery):
+async def subcat_delete_3(call: types.CallbackQuery, state: FSMContext):
     await call.answer()
+    await call.message.delete()
     if check_admin(call.from_user.id):
         subcat_id = call.data
         DB.query("""DELETE FROM subcategories WHERE id = %s""", (subcat_id,))
-        await FSMCategory.cat_menu.set()
-        await call.message.answer('Подкатегория удалена')
+        await menu(call, state, 'Подкатегория удалена')
     else:
-        await call.message.delete()
+        await menu(call, state, 'Нет доступа')
 
 
-async def create_menu_1(message: types.Message):
+async def create_menu_1(message: types.Message, state: FSMContext):
     if check_admin(message.from_user.id):
         buttons = []
         buttons.append(types.InlineKeyboardButton(text='Категорию', callback_data='1'))
@@ -361,60 +298,197 @@ async def create_menu_1(message: types.Message):
         keyboard.add(*buttons)
         await FSMCategory.create_menu_2.set()
         await message.answer('Что добавить?', reply_markup=keyboard)
+    else:
+        await menu(message, state, 'Нет доступа')
 
 
-async def create_menu_2(call: types.CallbackQuery):
+async def create_menu_2(call: types.CallbackQuery, state: FSMContext):
     await call.answer()
     await call.message.delete()
     if check_admin(call.from_user.id):
         method = call.data
         match method:
             case '1':
-                await FSMCategory.category_add_2.set()
+                await FSMCategory.cat_add_2.set()
                 await call.message.answer('Введите имя категории')
             case '2':
                 buttons = cat_buttons_list()
                 if len(buttons) != 0:
                     keyboard = types.InlineKeyboardMarkup(row_width=1)
                     keyboard.add(*buttons)
-                    await FSMCategory.subcategory_add_2.set()
+                    await FSMCategory.subcat_add_2.set()
                     await call.message.answer(
                         'Выберите категорию, в которую будет добавляться подкатегория',
                         reply_markup=keyboard
                     )
                 else:
-                    await call.message.answer('Категорий нет, сначала создайте их')
+                    await call.message.answer('Категории не найдены')
+    else:
+        await menu(call, state, 'Нет доступа')
 
 
-async def cat_menu(message: types.Message):
+async def cat_add_2(message: types.Message, state: FSMContext):
     if check_admin(message.from_user.id):
-        keyboard = types.ReplyKeyboardMarkup(resize_keyboard=True)
-        buttons = [
-            "Список",
-            "Изменить",
-            "Удалить",
-            "Добавить",
-            "Главное меню"
-        ]
-        keyboard.add(*buttons)
-        await FSMCategory.cat_menu.set()
-        await message.answer("Доступные функции с категориями", reply_markup=keyboard)
+        name = message.text.strip()
+        select_result = DB.query(
+            """SELECT * FROM categories WHERE name = %s""",
+            (name,)
+        )
+        if len(select_result) == 0:
+            DB.query(
+                """INSERT INTO categories (id, name) VALUES (%s, %s)""",
+                (None, name,)
+            )
+            await FSMCategory.cat_menu.set()
+            await message.answer('Категория "' + name + '" создана')
+        else:
+            await message.answer('Категория с таким именем уже есть')
+    else:
+        await menu(message, state, 'Нет доступа')
 
 
-async def admin_menu(message: types.Message):
+async def subcat_add_2(call: types.CallbackQuery, state: FSMContext):
+    await call.answer()
+    if check_admin(call.from_user.id):
+        category_id = call.data
+        select_category = DB.query("""SELECT * FROM categories WHERE id = %s""", (category_id,))
+        if len(select_category) != 0:
+            message_text = 'Введите название подкатегории\n'
+            subcategories_list = DB.query("""SELECT * FROM subcategories WHERE parent_cat_id = %s""", (category_id,))
+            if len(subcategories_list) != 0:
+                message_text += 'Текущий список подкатегорий в этой категории:\n'
+                for subcategory in subcategories_list:
+                    message_text += '"' + subcategory[1] + '"\n'
+            async with state.proxy() as data:
+                data['cat_name'] = select_category[0][1]
+                data['cat_id'] = category_id
+            await call.message.delete()
+            await FSMCategory.subcat_add_3.set()
+            await call.message.answer(message_text)
+        else:
+            await call.message.answer('Категория не найдена')
+    else:
+        await call.message.delete()
+        await menu(
+            call.message,
+            state,
+            'Нет доступа'
+        )
+
+
+async def subcat_add_3(message: types.Message, state: FSMContext):
     if check_admin(message.from_user.id):
-        keyboard = types.ReplyKeyboardMarkup(resize_keyboard=True)
-        buttons = [
-            "Список",
-            "Удалить",
-            "Добавить",
-            "Курс",
-            "Главное меню"
-        ]
-        keyboard.add(*buttons)
-        await FSMCategory.admin_menu.set()
-        await message.answer('Админка', reply_markup=keyboard)
-        
+        async with state.proxy() as data:
+            category_id = data['cat_id']
+            category_name = data['cat_name']
+        subcategory_name = message.text.strip()
+        subcategory = DB.query(
+            """SELECT * FROM subcategories WHERE name =%s AND parent_cat_id = %s""",
+            (subcategory_name, category_id,)
+        )
+        if len(subcategory) == 0:
+            DB.query(
+                """INSERT INTO subcategories (id, name, parent_cat_id, charge_type, charge )""" +
+                """ VALUES (%s,%s, %s, %s, %s)""",
+                (None, subcategory_name, category_id, 1, '0')
+            )
+            await menu(
+                message,
+                state,
+                'Подкатегория "' + subcategory_name +
+                '" в категории "' + category_name + '" создана'
+            )
+        else:
+            await message.answer('Подкатегория с таким именем уже есть')
+
+
+async def cat_menu(message, text='Доступные функции с категориями'):
+    if isinstance(message, types.Message):
+        if check_admin(message.from_user.id):
+            keyboard = types.ReplyKeyboardMarkup(resize_keyboard=True)
+            buttons = [
+                "Список",
+                "Изменить",
+                "Удалить",
+                "Добавить",
+                "Главное меню"
+            ]
+            keyboard.add(*buttons)
+            await FSMCategory.cat_menu.set()
+            await message.answer(text, reply_markup=keyboard)
+    elif isinstance(message, types.CallbackQuery):
+        if check_admin(message.from_user.id):
+            keyboard = types.ReplyKeyboardMarkup(resize_keyboard=True)
+            buttons = [
+                "Список",
+                "Изменить",
+                "Удалить",
+                "Добавить",
+                "Главное меню"
+            ]
+            keyboard.add(*buttons)
+            await FSMCategory.cat_menu.set()
+            await message.message.answer(text, reply_markup=keyboard)
+
+
+async def menu(message, state: FSMContext, text, type='menu'):
+    match type:
+        case 'menu':
+            if isinstance(message, types.Message):
+                if check_admin(message.from_user.id):
+                    await cat_menu(message, text)
+                else:
+                    await other.start(message, state, text)
+            elif isinstance(message, types.CallbackQuery):
+                if check_admin(message.from_user.id):
+                    await cat_menu(message, text)
+                else:
+                    await other.start(message, state, text)
+        case 'admin':
+            if isinstance(message, types.Message):
+                if check_admin(message.from_user.id):
+                    await admin_menu(message, text)
+                else:
+                    await other.start(message, state, text)
+            elif isinstance(message, types.CallbackQuery):
+                if check_admin(message.from_user.id):
+                    await admin_menu(message, text)
+                else:
+                    await other.start(message, state, text)
+
+
+async def admin(message):
+    await admin_menu(message, 'Админка')
+
+
+async def admin_menu(message, text):
+    if isinstance(message, types.Message):
+        if check_admin(message.from_user.id):
+            keyboard = types.ReplyKeyboardMarkup(resize_keyboard=True)
+            buttons = [
+                "Список",
+                "Удалить",
+                "Добавить",
+                "Курс",
+                "Главное меню"
+            ]
+            keyboard.add(*buttons)
+            await FSMCategory.admin_menu.set()
+            await message.answer(text, reply_markup=keyboard)
+    elif isinstance(message, types.CallbackQuery):
+        if check_admin(message.from_user.id):
+            keyboard = types.ReplyKeyboardMarkup(resize_keyboard=True)
+            buttons = [
+                "Список",
+                "Удалить",
+                "Добавить",
+                "Курс",
+                "Главное меню"
+            ]
+            keyboard.add(*buttons)
+            await FSMCategory.admin_menu.set()
+            await message.message.answer(text, reply_markup=keyboard)
+
 
 async def admin_list_1(message: types.Message):
     if check_admin(message.from_user.id):
@@ -422,7 +496,7 @@ async def admin_list_1(message: types.Message):
         if len(admins) != 0:
             message_text = ''
             for admin in admins:
-                message_text += '\t\t"' + admin[2] + '"\n'
+                message_text += '"' + admin[2] + '"\n'
             await message.answer(message_text)
         else:
             await message.answer('Админов нет')
@@ -541,12 +615,13 @@ def register_admin_handlers(dp: Dispatcher):
     dp.register_callback_query_handler(delete_menu_2, state=FSMCategory.delete_menu_2)
     dp.register_callback_query_handler(cat_delete_2, state=FSMCategory.cat_delete_2)
     dp.register_callback_query_handler(subcat_delete_2, state=FSMCategory.subcat_delete_2)
-    dp.register_message_handler(subcategory_add_3, state=FSMCategory.subcategory_add_3)
+    dp.register_callback_query_handler(subcat_delete_3, state=FSMCategory.subcat_delete_3)
 
     dp.register_message_handler(create_menu_1, lambda message: message.text == "Добавить", state=FSMCategory.cat_menu)
     dp.register_callback_query_handler(create_menu_2, state=FSMCategory.create_menu_2)
-    dp.register_message_handler(category_add_2, state=FSMCategory.category_add_2)
-    dp.register_callback_query_handler(subcategory_add_2, state=FSMCategory.subcategory_add_2)
+    dp.register_message_handler(cat_add_2, state=FSMCategory.cat_add_2)
+    dp.register_callback_query_handler(subcat_add_2, state=FSMCategory.subcat_add_2)
+    dp.register_message_handler(subcat_add_3, state=FSMCategory.subcat_add_3)
 
     dp.register_message_handler(charge_1, lambda message: message.text == "Изменить", state=FSMCategory.cat_menu)
     dp.register_callback_query_handler(charge_2, state=FSMCategory.charge_2)
@@ -554,7 +629,7 @@ def register_admin_handlers(dp: Dispatcher):
     dp.register_callback_query_handler(charge_4, state=FSMCategory.charge_4)
     dp.register_message_handler(charge_5, state=FSMCategory.charge_5)
 
-    dp.register_message_handler(admin_menu, lambda message: message.text == "Админка", state=None)
+    dp.register_message_handler(admin, lambda message: message.text == "Админка", state=None)
     dp.register_message_handler(admin_list_1, lambda message: message.text == "Список", state=FSMCategory.admin_menu)
     dp.register_message_handler(admin_delete_1, lambda message: message.text == "Удалить", state=FSMCategory.admin_menu)
     dp.register_callback_query_handler(admin_delete_2, state=FSMCategory.admin_delete_2)

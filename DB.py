@@ -23,6 +23,7 @@ class DB:
         if not connection == False:
             connection.autocommit = True
             with connection.cursor() as cursor:
+                cursor.execute('SET session sql_mode=traditional')
                 cursor.execute(query_string, params)
                 result = cursor.fetchall()
             connection.close()
