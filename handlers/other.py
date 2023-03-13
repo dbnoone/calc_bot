@@ -121,7 +121,7 @@ async def calc_4(message: types.Message, state: FSMContext):
             match charge_type:
                 case 1:
                     charge_type = 'Статическая'
-                    no_charge_price = (float(input_integer) * float(course))
+                    no_charge_price = float(input_integer) * float(course)
                     calc_result = no_charge_price + float(charge)
                 case 2:
                     charge_type = 'Динамическая'
@@ -136,7 +136,9 @@ async def calc_4(message: types.Message, state: FSMContext):
                     for charge_data in charge_pieces:
                         if int(input_integer) >= int(charge_data):
                             result_charge = charge_pieces[charge_data]
-                    calc_result = (float(input_integer) * float(course)) + float(result_charge)
+                        else:
+                            break
+                    calc_result = no_charge_price + float(result_charge)
             if admin.check_admin(message.from_user.id):
                 await start(
                     message,
